@@ -108,6 +108,7 @@ jobs:
       - name: Rebuild and tag the Action release
         if: steps.check-tag.outputs.already_tagged == 'false'
         run: |
+          npm run build -w @specfence/core
           npm run build -w @specfence/action
           git config user.name "specfence-bot"
           git config user.email "specfence-bot@users.noreply.github.com"
