@@ -1,0 +1,17 @@
+node_modules/
+*.log
+npm-debug.log*
+.DS_Store
+Thumbs.db
+coverage/
+.env
+.env.*
+!.env.example
+*.tsbuildinfo
+
+# Build output is gitignored per-package EXCEPT packages/action/dist, which
+# is committed on purpose: GitHub Actions cannot run `npm install` at
+# use-time, so the bundled action must be checked into git.
+packages/core/dist/
+packages/cli/dist/
+!packages/action/dist/

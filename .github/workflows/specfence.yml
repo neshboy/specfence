@@ -1,0 +1,31 @@
+name: SpecFence (self-check)
+
+# This repo enforces its own .specfence/scope.yaml on every PR - see that
+# file for the declared scopes.
+#
+# Note on `uses: ./`: consumers of the PUBLISHED action never need an
+# actions/checkout step (uses: neshboy/specfence@v1 fetches the action
+# separately, invisibly, and the action itself never checks out or executes
+# PR content - see docs/security.md). This workflow is the one exception:
+# testing the action against ITSELF requires checking out the repo so the
+# local action path resolves at all. Because this still runs on `pull_request`
+# (never `pull_request_target`), that checkout carries no secrets and a
+# forcibly read-only token even for fork PRs - the same safety property
+# ci.yml already relies on to run tests. See CODEOWNERS for how we cover
+# the residual risk this creates (a PR editing this workflow or the action's
+# own dist/ could in principle neuter its own check).
+on:
+  pull_request:
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./
+        with:
+          manifest-path: .specfence/scope.yaml

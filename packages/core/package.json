@@ -1,0 +1,30 @@
+{
+  "name": "@specfence/core",
+  "version": "0.1.0",
+  "description": "Manifest schema, glob-diff engine, and shared types for SpecFence. Internal shared package - not published standalone.",
+  "license": "MIT",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "typecheck": "tsc -b tsconfig.json"
+  },
+  "dependencies": {
+    "yaml": "^2.5.0",
+    "minimatch": "^10.0.0"
+  },
+  "devDependencies": {
+    "tsup": "^8.0.0",
+    "typescript": "^5.6.0"
+  }
+}

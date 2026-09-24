@@ -1,0 +1,11 @@
+# Defense-in-depth for the "confused deputy" gap documented in
+# docs/security.md: SpecFence pins its scope MANIFEST to the base ref, but
+# the CI/workflow definitions and the Action's own code are still PR-head-
+# controlled. No amount of correct manifest-pinning protects against a PR
+# that edits the enforcement itself - that has to be caught by human review.
+# Require a maintainer review on anything that could weaken enforcement.
+
+/.github/workflows/    @neshboy
+/.specfence/           @neshboy
+/packages/action/      @neshboy
+/CODEOWNERS            @neshboy

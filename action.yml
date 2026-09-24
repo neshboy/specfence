@@ -1,0 +1,22 @@
+name: "SpecFence"
+description: "Hard-fail a PR the instant a changed file falls outside its declared scope manifest."
+author: "SpecFence contributors"
+branding:
+  icon: "shield"
+  color: "purple"
+inputs:
+  manifest-path:
+    description: "Path to the scope manifest, relative to the repo root."
+    required: false
+    default: ".specfence/scope.yaml"
+  token:
+    description: >
+      Token used to read the base-ref manifest and list PR files via the
+      GitHub REST API. The default (the job's own GITHUB_TOKEN) needs only
+      `contents: read` and `pull-requests: read` - see docs/security.md.
+      This action never checks out or executes any PR-authored code.
+    required: false
+    default: ${{ github.token }}
+runs:
+  using: "node20"
+  main: "packages/action/dist/index.cjs"

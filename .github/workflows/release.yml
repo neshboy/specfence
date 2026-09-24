@@ -1,0 +1,102 @@
+name: Release
+
+# Changesets-driven release for the npm-published CLI, plus a git-tag release
+# for the GitHub Action (Marketplace has no concept of "npm publish" - it
+# resolves `uses: owner/specfence@v1` via git tags/releases).
+#
+# Flow:
+#   1. A PR that changes `packages/cli` (or `packages/core`, which it
+#      bundles) includes a changeset (`npx changeset`).
+#   2. On merge to main, changesets/action opens/updates a "Version
+#      Packages" PR that bumps package.json versions + CHANGELOG.md.
+#   3. Merging that PR triggers this workflow again; this time there are no
+#      pending changesets, so changesets/action runs `npm run release`,
+#      which builds every package and `changeset publish`-es `specfence` to
+#      npm (packages marked private, and @specfence/core/@specfence/action
+#      via `.changeset/config.json`'s `ignore`, are skipped).
+#   4. The release-action job below runs independently: it rebuilds the
+#      Action's dist/index.js, commits it if `packages/action/package.json`'s
+#      version changed, tags that commit `vX.Y.Z`, and force-moves the
+#      major-version tag `vX` (the convention Marketplace consumers pin to,
+#      e.g. `uses: owner/specfence@v1`) to the same commit.
+on:
+  push:
+    branches: [main]
+
+concurrency: ${{ github.workflow }}-${{ github.ref }}
+
+jobs:
+  release-cli:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          registry-url: https://registry.npmjs.org
+
+      - run: npm ci
+
+      - name: Create/update Version Packages PR, or publish
+        uses: changesets/action@v1
+        with:
+          publish: npm run release
+          version: npm run version-packages
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+  release-action:
+    runs-on: ubuntu-latest
+    needs: release-cli
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci
+
+      - name: Read @specfence/action version
+        id: action-version
+        run: echo "version=$(node -p "require('./packages/action/package.json').version")" >> "$GITHUB_OUTPUT"
+
+      - name: Skip if this version was already tagged
+        id: check-tag
+        run: |
+          if git rev-parse "v${{ steps.action-version.outputs.version }}" >/dev/null 2>&1; then
+            echo "already_tagged=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "already_tagged=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Rebuild and tag the Action release
+        if: steps.check-tag.outputs.already_tagged == 'false'
+        run: |
+          npm run build -w @specfence/action
+          git config user.name "specfence-bot"
+          git config user.email "specfence-bot@users.noreply.github.com"
+          if ! git diff --quiet -- packages/action/dist; then
+            git add packages/action/dist
+            git commit -m "chore: rebuild action dist for v${{ steps.action-version.outputs.version }}"
+            git push
+          fi
+          MAJOR="v$(echo "${{ steps.action-version.outputs.version }}" | cut -d. -f1)"
+          git tag "v${{ steps.action-version.outputs.version }}"
+          git tag -f "$MAJOR"
+          git push origin "v${{ steps.action-version.outputs.version }}"
+          git push origin "$MAJOR" --force

@@ -1,0 +1,31 @@
+{
+  "name": "specfence-monorepo",
+  "private": true,
+  "description": "SpecFence workspace root (not published) - see packages/* for published artifacts",
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "npm run build -w @specfence/core && npm run build -w specfence -w @specfence/action",
+    "typecheck": "tsc -b tsconfig.json",
+    "pretest": "npm run build -w @specfence/core",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "echo \"(lint not yet configured)\" && exit 0",
+    "changeset": "changeset",
+    "version-packages": "changeset version",
+    "release": "npm run build && changeset publish"
+  },
+  "devDependencies": {
+    "@changesets/cli": "^2.27.0",
+    "@types/node": "^24.0.0",
+    "tsup": "^8.0.0",
+    "typescript": "^5.6.0",
+    "vitest": "^2.1.0"
+  }
+}

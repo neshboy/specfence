@@ -1,0 +1,52 @@
+# SpecFence eats its own dog food: this manifest is enforced on every PR to
+# this repo (see .github/workflows/specfence.yml). It's read from the base
+# branch, never from a PR's own head - see docs/security.md.
+version: 1
+
+ignore:
+  - "node_modules/**"
+  - "coverage/**"
+  - "*.tsbuildinfo"
+  - "packages/core/dist/**"
+  - "packages/cli/dist/**"
+  - "package-lock.json"
+
+scopes:
+  - id: core
+    description: "@specfence/core - manifest schema and the gate engine"
+    globs:
+      - "packages/core/**"
+
+  - id: cli
+    description: "The specfence CLI"
+    globs:
+      - "packages/cli/**"
+
+  - id: action
+    description: "The GitHub Action, including its committed dist/ bundle"
+    globs:
+      - "packages/action/**"
+      - "action.yml"
+
+  - id: ci
+    description: "CI/release workflows and issue/PR templates"
+    globs:
+      - ".github/**"
+
+  - id: docs
+    description: "Docs, examples, and top-level project files"
+    globs:
+      - "docs/**"
+      - "examples/**"
+      - "*.md"
+      - "CODEOWNERS"
+      - "LICENSE"
+
+  - id: tooling
+    description: "Root build/release tooling config"
+    globs:
+      - "package.json"
+      - "tsconfig*.json"
+      - "vitest.config.ts"
+      - ".gitignore"
+      - ".changeset/**"

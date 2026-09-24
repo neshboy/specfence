@@ -1,0 +1,23 @@
+{
+  "name": "@specfence/action",
+  "version": "0.1.0",
+  "description": "SpecFence GitHub Action - not published to npm; distributed via git tag + GitHub Marketplace. dist/index.js is committed.",
+  "license": "MIT",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "typecheck": "tsc -b tsconfig.json"
+  },
+  "dependencies": {
+    "@actions/core": "^3.0.1",
+    "@actions/github": "^9.1.1"
+  },
+  "devDependencies": {
+    "@specfence/core": "0.1.0",
+    "tsup": "^8.0.0",
+    "typescript": "^5.6.0"
+  }
+}

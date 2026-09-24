@@ -1,0 +1,34 @@
+{
+  "name": "specfence",
+  "version": "0.1.0",
+  "description": "Zero-infra scope guard for AI-agent (and human) pull requests - deterministic CI gate + CLI.",
+  "keywords": ["ci", "github-actions", "ai-agents", "code-review", "monorepo", "spec-driven-development"],
+  "license": "MIT",
+  "repository": { "type": "git", "url": "git+https://github.com/neshboy/specfence.git" },
+  "bugs": "https://github.com/neshboy/specfence/issues",
+  "homepage": "https://github.com/neshboy/specfence#readme",
+  "type": "module",
+  "bin": {
+    "specfence": "./dist/index.cjs"
+  },
+  "main": "./dist/index.cjs",
+  "types": "./dist/index.d.cts",
+  "files": ["dist"],
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "typecheck": "tsc -b tsconfig.json"
+  },
+  "dependencies": {
+    "commander": "^12.1.0",
+    "picocolors": "^1.1.0"
+  },
+  "devDependencies": {
+    "@specfence/core": "0.1.0",
+    "tsup": "^8.0.0",
+    "typescript": "^5.6.0"
+  }
+}

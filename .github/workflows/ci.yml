@@ -1,0 +1,44 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci
+
+      - run: npm run typecheck
+
+      # Build before test: packages/cli's tests import the PUBLISHED
+      # @specfence/core entry point (its package.json "exports" ->
+      # dist/index.js), which doesn't exist yet in a fresh checkout - core's
+      # dist/ is gitignored, unlike the Action's, which is committed.
+      - run: npm run build
+
+      - run: npm test
+
+      # The Action can't `npm install` at use-time, so packages/action/dist
+      # is committed to git. If a contributor changes packages/action/src
+      # (or a shared packages/core file it depends on) and forgets to
+      # rebuild, the checked-in bundle silently goes stale. Rebuild here and
+      # fail if that produces a diff.
+      - name: Verify packages/action/dist is up to date
+        run: |
+          git diff --exit-code -- packages/action/dist || {
+            echo "::error::packages/action/dist is stale. Run 'npm run build -w @specfence/action' and commit the result.";
+            exit 1;
+          }
