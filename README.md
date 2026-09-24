@@ -16,6 +16,10 @@
 [Security model](docs/security.md) ·
 [FAQ](docs/faq.md)
 
+<img src="docs/assets/demo.svg" alt="specfence check catching an out-of-scope file in a real terminal session" width="700" />
+
+<sub>A real recorded terminal session (real repo, real CLI, real output) - not a mockup.</sub>
+
 </div>
 
 ---
