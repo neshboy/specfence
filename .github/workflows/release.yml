@@ -45,13 +45,20 @@ jobs:
 
       - run: npm ci
 
+      - name: Check whether NPM_TOKEN is configured
+        # GitHub Actions doesn't reliably support the `secrets` context
+        # directly inside a step `if:` - route it through a step output
+        # instead, which is unambiguously supported.
+        id: npm-token-check
+        run: echo "present=${{ secrets.NPM_TOKEN != '' }}" >> "$GITHUB_OUTPUT"
+
       - name: Create/update Version Packages PR, or publish
         # Skips the actual `npm publish` gracefully (changesets/action still
         # opens/updates the Version Packages PR either way) until this repo's
         # owner adds a real NPM_TOKEN secret for their own npm account -
         # publishing to the public registry is an intentional, ownership-tied
         # decision this workflow shouldn't force through with no token.
-        if: ${{ secrets.NPM_TOKEN != '' }}
+        if: steps.npm-token-check.outputs.present == 'true'
         uses: changesets/action@v1
         with:
           publish: npm run release
@@ -61,7 +68,7 @@ jobs:
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Create/update Version Packages PR only (no NPM_TOKEN configured yet)
-        if: ${{ secrets.NPM_TOKEN == '' }}
+        if: steps.npm-token-check.outputs.present == 'false'
         uses: changesets/action@v1
         with:
           version: npm run version-packages
