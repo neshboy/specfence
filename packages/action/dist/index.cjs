@@ -33666,9 +33666,16 @@ function parseScopeEntry(entry, index, label, seenIds) {
     exclude: excludeRaw
   };
 }
+var MAX_WILDCARD_RUNS_PER_SEGMENT = 4;
 function validateGlob(glob, field, label) {
   if (glob.length === 0) {
     throw new ManifestError(`Manifest${label} has an empty glob pattern in "${field}".`, "invalid-schema");
+  }
+  if (glob.startsWith("!")) {
+    throw new ManifestError(
+      `Manifest${label} glob "${glob}" in "${field}" starts with "!". This schema does not support "!" as an exclusion/negation marker (it would silently widen a scope to match almost everything else instead of narrowing it) - use this scope's "exclude" field, or the top-level "deny" field, to carve out a subtree.`,
+      "invalid-schema"
+    );
   }
   if (glob.split(/[\\/]/).includes("..")) {
     throw new ManifestError(
@@ -33682,8 +33689,17 @@ function validateGlob(glob, field, label) {
       "invalid-schema"
     );
   }
+  for (const segment of glob.split("/")) {
+    const wildcardRuns = segment.match(/\*+/g)?.length ?? 0;
+    if (wildcardRuns > MAX_WILDCARD_RUNS_PER_SEGMENT) {
+      throw new ManifestError(
+        `Manifest${label} glob "${glob}" in "${field}" has ${wildcardRuns} separate wildcard groups in one path segment ("${segment}"), more than the limit of ${MAX_WILDCARD_RUNS_PER_SEGMENT}. Patterns shaped like this can take exponentially long to match against an adversarial path - split it into a more specific pattern.`,
+        "invalid-schema"
+      );
+    }
+  }
 }
-var MATCH_OPTIONS = { dot: true, nocase: false };
+var MATCH_OPTIONS = { dot: true, nocase: false, nonegate: true };
 function normalizeGlob(glob) {
   return glob.endsWith("/") ? `${glob}**` : glob;
 }
@@ -33735,6 +33751,20 @@ function checkScope(manifest, changes) {
     covered,
     ignored
   };
+}
+var DecodeError = class extends Error {
+  constructor(message) {
+    super(message);
+    this.name = "DecodeError";
+  }
+};
+function safeDecodeUtf8(bytes, source) {
+  const decoder = new TextDecoder("utf-8", { fatal: true });
+  try {
+    return decoder.decode(bytes);
+  } catch {
+    throw new DecodeError(`Invalid UTF-8 byte sequence${source ? ` in ${source}` : ""}.`);
+  }
 }
 
 // src/github.ts
@@ -33835,8 +33865,12 @@ async function run() {
       setFailed(`SpecFence: "${manifestPath}" on the base branch is not a regular file.`);
       return;
     }
-    manifestText = Buffer.from(data.content, "base64").toString("utf8");
+    manifestText = safeDecodeUtf8(Buffer.from(data.content, "base64"), manifestPath);
   } catch (err) {
+    if (err instanceof DecodeError) {
+      setFailed(`SpecFence: ${manifestPath} on the base branch is not valid UTF-8 - failing closed. (${err.message})`);
+      return;
+    }
     const status = err.status;
     if (status === 404) {
       await summary.addRaw(buildNotAdoptedMarkdown(manifestPath)).write();

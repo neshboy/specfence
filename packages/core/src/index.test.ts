@@ -158,6 +158,40 @@ describe("checkScope", () => {
     expect(result.passed).toBe(true);
   });
 
+  it("treats a '!'-prefixed glob literally rather than as minimatch negation, even if constructed directly (bypassing manifest validation)", () => {
+    // A scope whose ONLY glob is negation-shaped. With minimatch's default
+    // negation active (the bug), "!src/secrets/**" would match almost every
+    // path NOT under src/secrets - silently covering infra/prod.tf and the
+    // workflow file. Treated literally (the fix), it matches no real path
+    // at all (nothing starts with "!"), so every path here is correctly a
+    // violation, src/secrets/key.pem included.
+    const result = checkScope(manifest({ scopes: [{ id: "web", globs: ["!src/secrets/**"], exclude: [] }] }), [
+      change("infra/prod.tf"),
+      change(".github/workflows/deploy.yml"),
+      change("src/secrets/key.pem"),
+    ]);
+    expect(result.passed).toBe(false);
+    expect(result.violations.map((v) => v.path).sort()).toEqual([
+      ".github/workflows/deploy.yml",
+      "infra/prod.tf",
+      "src/secrets/key.pem",
+    ]);
+  });
+
+  it("does not hang on a glob shape that would be catastrophically slow without the wildcard-count guard", () => {
+    // This exact pattern measured 12+ seconds in raw minimatch during
+    // security review; safeParseManifest now rejects it at parse time (see
+    // the manifest-validation tests below), so this proves the runtime
+    // matching path itself also stays fast for a SHORTER pattern within
+    // the allowed limit, as a belt-and-suspenders timing check.
+    const start = Date.now();
+    const result = checkScope(manifest({ scopes: [{ id: "web", globs: ["a*a*a*a*b"], exclude: [] }] }), [
+      change("a".repeat(60) + "c"),
+    ]);
+    expect(Date.now() - start).toBeLessThan(500);
+    expect(result.passed).toBe(false);
+  });
+
   it("matches case-sensitively regardless of host OS", () => {
     const result = checkScope(manifest({ scopes: [{ id: "web", globs: ["src/**"], exclude: [] }] }), [
       change("SRC/index.ts"),
@@ -233,5 +267,24 @@ describe("safeParseManifest", () => {
       "c: &c [*b,*b,*b,*b,*b,*b,*b,*b,*b]\n" +
       "version: 1\nscopes: []\n";
     expect(() => safeParseManifest(bomb)).not.toThrow(/timed out|hang/);
+  });
+
+  it("rejects a glob starting with '!' rather than treating it as negation", () => {
+    // Regression: minimatch's default negation would make a scope's OR'd
+    // globs list match almost the whole repo instead of narrowing it.
+    expect(() =>
+      safeParseManifest("version: 1\nscopes:\n  - id: web\n    globs: ['src/**', '!src/secrets/**']\n")
+    ).toThrowError(/starts with "!"/);
+  });
+
+  it("rejects a glob with too many wildcard groups in one path segment (ReDoS guard)", () => {
+    expect(() =>
+      safeParseManifest('version: 1\nscopes:\n  - id: web\n    globs: ["db/migrations/*_*_*_*_*_*_*.sql"]\n')
+    ).toThrowError(/wildcard groups/);
+  });
+
+  it("allows a moderate number of wildcards in one segment", () => {
+    const m = safeParseManifest('version: 1\nscopes:\n  - id: web\n    globs: ["*_*_*_*.log"]\n');
+    expect(m.scopes[0]?.globs).toEqual(["*_*_*_*.log"]);
   });
 });

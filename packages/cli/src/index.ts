@@ -17,13 +17,27 @@ program
   .description("Zero-infra scope guard for AI-agent (and human) pull requests.")
   .version("0.1.0");
 
-function resolveBase(cwd: string, flagBase: string | undefined): string | undefined {
+/** Carries the real, specific reason base-ref resolution failed - see resolveBase(). */
+class BaseResolutionError extends Error {}
+
+function resolveBase(cwd: string, flagBase: string | undefined): string {
   const base = flagBase ?? process.env.SPECFENCE_BASE ?? resolveDefaultBase(cwd);
-  if (!base) return undefined;
+  if (!base) {
+    throw new BaseResolutionError(
+      "could not determine a base ref to compare against.\nPass --base explicitly (e.g. --base origin/main), or set SPECFENCE_BASE."
+    );
+  }
   try {
     assertRefExists(cwd, base);
-  } catch {
-    return undefined;
+  } catch (err) {
+    // Surface the REAL reason (git missing, or this specific ref doesn't
+    // exist) rather than swallowing it into the generic "couldn't
+    // auto-detect a base" message - that message is actively misleading
+    // when the user already passed --base explicitly.
+    if (err instanceof GitError) {
+      throw new BaseResolutionError(err.message);
+    }
+    throw err;
   }
   return base;
 }
@@ -38,16 +52,29 @@ program
   .option("--github", "emit GitHub Actions ::error:: annotations instead of human-readable output", false)
   .action((opts: { base?: string; head: string; manifestPath: string; json: boolean; github: boolean }) => {
     const cwd = process.cwd();
-    const base = resolveBase(cwd, opts.base);
-    if (!base) {
-      console.error(
-        'error: could not determine a base ref to compare against.\nPass --base explicitly (e.g. --base origin/main), or set SPECFENCE_BASE.'
-      );
-      process.exitCode = 2;
-      return;
+    let base: string;
+    try {
+      base = resolveBase(cwd, opts.base);
+    } catch (err) {
+      if (err instanceof BaseResolutionError) {
+        console.error(`error: ${err.message}`);
+        process.exitCode = 2;
+        return;
+      }
+      throw err;
     }
 
-    const manifestText = readFileAtRef(cwd, base, opts.manifestPath);
+    let manifestText: string | undefined;
+    try {
+      manifestText = readFileAtRef(cwd, base, opts.manifestPath);
+    } catch (err) {
+      if (err instanceof GitError) {
+        console.error(`error: ${err.message}`);
+        process.exitCode = 2;
+        return;
+      }
+      throw err;
+    }
     if (manifestText === undefined) {
       const message = `No ${opts.manifestPath} found on ${base} - SpecFence isn't enforcing anything yet. Run "npx specfence init" to scaffold one.`;
       console.log(opts.json ? JSON.stringify({ adopted: false, message }) : message);
@@ -112,7 +139,14 @@ program
       return;
     }
 
-    const base = resolveBase(cwd, opts.base);
+    let base: string | undefined;
+    try {
+      base = resolveBase(cwd, opts.base);
+    } catch {
+      // init must always succeed - an unresolvable base just means we fall
+      // back to untracked-only below, rather than error like `check` does.
+      base = undefined;
+    }
     let changedPaths: string[] = [];
     if (base) {
       try {
@@ -142,8 +176,14 @@ program
       return;
     }
 
-    mkdirSync(dirname(outPath), { recursive: true });
-    writeFileSync(outPath, yaml, "utf8");
+    try {
+      mkdirSync(dirname(outPath), { recursive: true });
+      writeFileSync(outPath, yaml, "utf8");
+    } catch (err) {
+      console.error(`error: could not write ${opts.out}: ${(err as Error).message}`);
+      process.exitCode = 2;
+      return;
+    }
     console.log(
       `Wrote ${opts.out}${generated.bootstrap ? " (no changes detected yet, so it allows everything for now - narrow it down as you go)" : ""}.`
     );

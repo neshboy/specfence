@@ -1,21 +1,45 @@
 import { execFileSync } from "node:child_process";
 import type { ChangeEntry } from "@specfence/core";
+import { DecodeError, safeDecodeUtf8 } from "@specfence/core";
 
 export class GitError extends Error {}
 
 function git(cwd: string, args: string[]): string {
+  let buffer: Buffer;
   try {
     // execFileSync (argv array, no shell) - never string-concatenated into a
     // shell command, so ref names / paths can never break out into shell
-    // injection regardless of what characters they contain.
-    return execFileSync("git", args, { cwd, encoding: "utf8", maxBuffer: 1024 * 1024 * 64 });
+    // injection regardless of what characters they contain. No `encoding`
+    // option: we decode strictly ourselves below (see safeDecodeUtf8) -
+    // Node's own "utf8" encoding here would LOSSILY replace invalid bytes
+    // with U+FFFD, which previously let a corrupted base-ref manifest byte
+    // silently defeat a `deny` rule with no diagnostic at all. `stdio` is
+    // explicit so a failing git command's stderr is only ever captured into
+    // the thrown error, never also relayed live to our own real stderr
+    // (which otherwise leaks a raw "fatal: ..." line even on the common,
+    // entirely-expected "no manifest on this ref yet" path).
+    buffer = execFileSync("git", args, {
+      cwd,
+      stdio: ["pipe", "pipe", "pipe"],
+      maxBuffer: 1024 * 1024 * 64,
+    }) as Buffer;
   } catch (err) {
     const e = err as NodeJS.ErrnoException & { stderr?: Buffer | string; message: string };
     if (e.code === "ENOENT") {
       throw new GitError("git was not found on PATH - the specfence CLI shells out to your local git installation.");
     }
-    const stderr = e.stderr ? String(e.stderr).trim() : e.message;
+    const stderr = e.stderr ? Buffer.from(e.stderr).toString("utf8").trim() : e.message;
     throw new GitError(stderr);
+  }
+  try {
+    return safeDecodeUtf8(buffer, "git output");
+  } catch (err) {
+    if (err instanceof DecodeError) {
+      throw new GitError(
+        `git produced output that is not valid UTF-8 - refusing to proceed rather than risk silently corrupting a path or the manifest. (${err.message})`
+      );
+    }
+    throw err;
   }
 }
 

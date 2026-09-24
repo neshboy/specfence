@@ -1,6 +1,6 @@
 import * as core from "@actions/core";
 import * as github from "@actions/github";
-import { checkScope, ManifestError, safeParseManifest } from "@specfence/core";
+import { checkScope, DecodeError, ManifestError, safeDecodeUtf8, safeParseManifest } from "@specfence/core";
 import { buildTreeMap, toChangeEntries, type PullFile } from "./github.js";
 import { buildNotAdoptedMarkdown, buildSummaryMarkdown } from "./summary.js";
 
@@ -44,8 +44,16 @@ async function run(): Promise<void> {
       core.setFailed(`SpecFence: "${manifestPath}" on the base branch is not a regular file.`);
       return;
     }
-    manifestText = Buffer.from(data.content, "base64").toString("utf8");
+    // Strict decode, not Buffer#toString("utf8") - that's lossy (silently
+    // substitutes U+FFFD for invalid bytes), which previously let a
+    // corrupted manifest byte silently defeat a `deny` rule. See
+    // packages/core/src/text.ts and docs/security.md.
+    manifestText = safeDecodeUtf8(Buffer.from(data.content, "base64"), manifestPath);
   } catch (err) {
+    if (err instanceof DecodeError) {
+      core.setFailed(`SpecFence: ${manifestPath} on the base branch is not valid UTF-8 - failing closed. (${err.message})`);
+      return;
+    }
     const status = (err as { status?: number }).status;
     if (status === 404) {
       await core.summary.addRaw(buildNotAdoptedMarkdown(manifestPath)).write();

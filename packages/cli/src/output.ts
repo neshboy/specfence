@@ -49,9 +49,29 @@ export function formatJson(result: GateResult, meta: Meta & { changedFiles: numb
   return JSON.stringify({ ...result, ...meta }, null, 2);
 }
 
+// GitHub Actions scans a workflow step's stdout for "::command::" syntax.
+// v.path is attacker-controlled (a changed file's path from the PR being
+// checked) - without escaping, a path containing an embedded newline
+// followed by "::" could inject an independent, forged workflow command
+// (e.g. ::add-mask::, ::error::, ::stop-commands::) into the log stream.
+// These two escapers mirror @actions/core's own toCommandValue escaping:
+// escapeData for free-text message content, escapeProperty (which also
+// escapes ":" and "," since those delimit key=value property lists) for
+// anything interpolated into the "file=..." property position.
+function escapeData(value: string): string {
+  return value.replace(/%/g, "%25").replace(/\r/g, "%0D").replace(/\n/g, "%0A");
+}
+
+function escapeProperty(value: string): string {
+  return escapeData(value).replace(/:/g, "%3A").replace(/,/g, "%2C");
+}
+
 export function formatGithubAnnotations(result: GateResult): string {
   if (result.violations.length === 0) return "SpecFence: all changed files are in scope.";
   return result.violations
-    .map((v) => `::error file=${v.path}::SpecFence: "${v.path}" is outside the declared scope (${reasonLabel(v.reason)}).`)
+    .map(
+      (v) =>
+        `::error file=${escapeProperty(v.path)}::SpecFence: "${escapeData(v.path)}" is outside the declared scope (${reasonLabel(v.reason)}).`
+    )
     .join("\n");
 }

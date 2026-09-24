@@ -113,26 +113,98 @@ These are non-negotiable, and covered by regression tests
   list (the Files API caps at 3000) fails closed rather than validating a
   truncated list.
 
+## Byte-level decoding
+
+Both the CLI (git command output) and the Action (base64 manifest content
+from the Contents API) decode untrusted-but-external bytes into text
+before anything else touches them. Node's built-in `"utf8"` string
+decoding is **lossy** - an invalid byte sequence is silently replaced with
+U+FFFD instead of throwing. A pre-release adversarial QA pass confirmed
+this was a real, exploitable gap: a single corrupted byte landing inside a
+`deny` glob silently mutated it into something that could never match,
+letting a denied change through with `passed: true` and no diagnostic of
+any kind - the exact "silently treated as a pass" outcome this document
+says must never happen.
+
+The fix (`packages/core/src/text.ts`'s `safeDecodeUtf8()`) is now the only
+way either package turns bytes into text for anything security-relevant:
+it uses a strict `TextDecoder("utf-8", { fatal: true })` and throws a
+clear, distinct error instead of silently substituting - covered by
+`packages/core/src/text.test.ts` and an end-to-end regression test
+(`packages/cli/src/cli-binary.test.ts`) that replays the exact original
+exploit.
+
 ## YAML parsing
 
 `safeParseManifest()` (`packages/core/src/manifest.ts`) is the *only*
-place manifest text is parsed - every caller goes through it. It uses the
-`yaml` npm package's default `parse()`, which has no code-executing custom
-tags (unlike legacy `js-yaml` full-loaders) and caps anchor/alias
-expansion by default, so a "billion laughs"-style manifest fails fast
-rather than hanging or executing anything.
+place manifest text is parsed - every caller goes through it (and only
+ever receives text that has already passed `safeDecodeUtf8()` above). It
+uses the `yaml` npm package's default `parse()`, which has no
+code-executing custom tags (unlike legacy `js-yaml` full-loaders) and caps
+anchor/alias expansion by default, so a "billion laughs"-style manifest
+fails fast rather than hanging or executing anything.
 
 ## Glob matching
 
-`minimatch` is pinned to a version with built-in pattern-length guards
-against catastrophic backtracking. Matching options are fixed regardless
-of host OS: `dot: true` (so `.github/**` is matchable at all) and
-case-sensitive matching always (paths are compared as plain strings from a
-diff, never against a real filesystem).
+Matching options (`packages/core/src/match.ts`) are fixed regardless of
+host OS: `dot: true` (so `.github/**` is matchable at all), case-sensitive
+matching always (paths are compared as plain strings from a diff, never
+against a real filesystem), and `nonegate: true` so a glob starting with
+`!` is matched *literally* rather than treated as minimatch's global
+negation - without this, `globs: ["src/**", "!src/secrets/**"]` (a natural
+but wrong pattern for this schema, borrowed from `.gitignore`-style
+tooling) would silently make a scope match almost the entire repo instead
+of narrowing it. `validateGlob()` in `packages/core/src/manifest.ts`
+rejects a leading `!` outright at parse time as a second, independent
+guard; the only supported way to narrow a scope is `exclude` or `deny`.
+
+**ReDoS.** An earlier version of this document claimed minimatch's pinned
+version's "pattern-length guard" protected against catastrophic
+backtracking. Adversarial security review found that claim false: that
+guard only bounds brace-expansion blowup (a flat character-count cap), not
+classic multi-wildcard regex backtracking, and measured a real, ordinary-
+looking manifest glob (`"db/migrations/*_*_*_*_*_*_*.sql"`, 7 wildcard
+groups in one segment) taking 12+ seconds against a single ~75-character
+attacker-controlled path - a genuine, low-effort denial-of-service
+reachable by any fork-PR contributor choosing their own filename, no
+special access required. Because a synchronous regex match can't be
+preempted mid-execution from the same thread, the fix is a validation-time
+guard, not a runtime timeout: `validateGlob()` rejects any glob with more
+than 4 wildcard groups (`*` or `**`, counted as one run each) in a single
+path segment, closing the demonstrated shape while still allowing normal
+patterns like `*_*_*_*.log`. This is a targeted mitigation for the
+specific, measured attack shape, not an exhaustive audit of every
+minimatch feature combination (extglob/brace-expansion interactions
+weren't specifically re-tested) - treat it as a tracked, documented
+limitation rather than a blanket guarantee.
+
+## Log / workflow-command injection
+
+The CLI's `--github` flag (for teams running `specfence check` as a plain
+CI step instead of the packaged Action - see
+[getting-started.md](getting-started.md)) emits `::error file=...::`
+GitHub Actions workflow-command annotations to stdout, which the Actions
+runner scans for command syntax. A changed file's path is
+attacker-controlled (chosen by whoever opened the PR), so an unescaped
+embedded newline followed by `::` syntax could forge a second, independent
+workflow command (`::add-mask::`, `::stop-commands::`, forged
+`::error::`/`::warning::` annotations) into the log stream. `packages/cli/src/output.ts`'s
+`formatGithubAnnotations()` now percent-escapes `%`/`\r`/`\n` (and
+additionally `:`/`,` for the `file=` property specifically) before
+interpolating any path, mirroring `@actions/core`'s own escaping -
+covered by `packages/cli/src/output.test.ts`. The shipped GitHub Action
+itself was never exposed to this: it only ever writes aggregate,
+path-free messages via `core.setFailed`/`core.warning`, and its
+per-violation paths go to the Job Summary file (`$GITHUB_STEP_SUMMARY`),
+which the runner does not scan for workflow commands.
 
 ## Command execution
 
-The CLI shells out to `git` via `execFileSync` with an argv array
-(`packages/cli/src/git.ts`) - never a shell string built by concatenating
-a ref name or path. A malicious branch name or filename containing shell
-metacharacters cannot break out of the invocation.
+The CLI shells out to `git` via `execFileSync` with an argv array and an
+explicit `stdio` (`packages/cli/src/git.ts`) - never a shell string built
+by concatenating a ref name or path, and never relying on Node's default
+of relaying a failing child's stderr straight to the CLI's own stderr
+(which previously leaked a raw `fatal: ...` line even on the common,
+correctly-handled "no manifest on this ref yet" path). A malicious branch
+name or filename containing shell metacharacters cannot break out of the
+invocation.

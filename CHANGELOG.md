@@ -25,3 +25,31 @@ whole.
   REST-API-only (no `actions/checkout`), read-only permissions.
 - This repository dogfoods itself: `.specfence/scope.yaml` +
   `.github/workflows/specfence.yml` + `.github/CODEOWNERS`.
+
+### Fixed (found by pre-release adversarial QA/security review, before any tagged release)
+- **Security bypass**: a single invalid UTF-8 byte in the base-ref manifest
+  was silently substituted with U+FFFD by Node's lossy `"utf8"` decoding,
+  which could mutate a `deny` glob into something that never matches and
+  let a denied change through with `passed: true` and zero diagnostic
+  output. Fixed with a strict decoder (`safeDecodeUtf8`) used everywhere
+  either package turns external bytes into text.
+- **ReDoS**: a manifest glob with 5+ wildcard groups in one path segment
+  (e.g. `*_*_*_*_*_*_*.sql`) could take from seconds to minutes to match
+  against an attacker-chosen (fork-PR) file path. `validateGlob()` now
+  rejects more than 4 wildcard groups per segment at parse time.
+- **Scope-widening bug**: a glob starting with `!` was matched as
+  minimatch's global negation rather than literally, which could make a
+  scope silently match almost the entire repo. Negation is now disabled
+  (`nonegate: true`) and a leading `!` is rejected at parse time.
+- **Log injection**: the CLI's `--github` annotation output didn't escape
+  `%`/`\r`/`\n`/`:`/`,` in a changed file's path, which could let a crafted
+  path forge an independent GitHub Actions workflow command in the log
+  stream. Now escaped to match `@actions/core`'s own scheme.
+- `check` no longer leaks git's raw `fatal: ...` stderr on the common,
+  correctly-handled "no manifest on this ref yet" path.
+- `check`'s error messages for "git not found" and "base ref does not
+  exist" no longer get swallowed into a generic, misleading "pass --base
+  explicitly" message when `--base` was already passed.
+- `init` no longer crashes with a raw stack trace and exit code 1 (instead
+  of a clean message and exit code 2) when its final filesystem write
+  fails (read-only target, or a non-directory occupying `.specfence`).

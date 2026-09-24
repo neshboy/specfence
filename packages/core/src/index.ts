@@ -12,3 +12,4 @@ export { ManifestError } from "./types.js";
 export { safeParseManifest } from "./manifest.js";
 export { checkScope } from "./gate.js";
 export { matchesAny } from "./match.js";
+export { DecodeError, safeDecodeUtf8 } from "./text.js";

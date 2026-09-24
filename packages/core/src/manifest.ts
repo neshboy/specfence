@@ -131,9 +131,27 @@ function parseScopeEntry(entry: unknown, index: number, label: string, seenIds: 
   };
 }
 
+// Beyond this many "*" runs in a single path segment, minimatch's compiled
+// regex becomes vulnerable to catastrophic backtracking against an
+// adversarial (attacker-controlled, e.g. a fork PR's own filename) subject
+// string - measured: 4 runs is sub-millisecond, 7 runs (a real-looking
+// multi-field pattern like "*_*_*_*_*_*_*.sql") took 12+ seconds against a
+// ~75-character path. Reject before it ever reaches the matcher rather than
+// rely on a length/timeout guard that can't preempt a synchronous regex
+// match. See docs/security.md.
+const MAX_WILDCARD_RUNS_PER_SEGMENT = 4;
+
 function validateGlob(glob: string, field: string, label: string): void {
   if (glob.length === 0) {
     throw new ManifestError(`Manifest${label} has an empty glob pattern in "${field}".`, "invalid-schema");
+  }
+  if (glob.startsWith("!")) {
+    throw new ManifestError(
+      `Manifest${label} glob "${glob}" in "${field}" starts with "!". This schema does not support "!" as an` +
+        ` exclusion/negation marker (it would silently widen a scope to match almost everything else instead of` +
+        ` narrowing it) - use this scope's "exclude" field, or the top-level "deny" field, to carve out a subtree.`,
+      "invalid-schema"
+    );
   }
   if (glob.split(/[\\/]/).includes("..")) {
     throw new ManifestError(
@@ -146,5 +164,17 @@ function validateGlob(glob: string, field: string, label: string): void {
       `Manifest${label} glob "${glob}" in "${field}" uses a backslash; glob patterns must use forward slashes.`,
       "invalid-schema"
     );
+  }
+  for (const segment of glob.split("/")) {
+    const wildcardRuns = segment.match(/\*+/g)?.length ?? 0;
+    if (wildcardRuns > MAX_WILDCARD_RUNS_PER_SEGMENT) {
+      throw new ManifestError(
+        `Manifest${label} glob "${glob}" in "${field}" has ${wildcardRuns} separate wildcard groups in one path` +
+          ` segment ("${segment}"), more than the limit of ${MAX_WILDCARD_RUNS_PER_SEGMENT}. Patterns shaped like` +
+          ` this can take exponentially long to match against an adversarial path - split it into a more specific` +
+          ` pattern.`,
+        "invalid-schema"
+      );
+    }
   }
 }
