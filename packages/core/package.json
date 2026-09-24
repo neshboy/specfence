@@ -1,6 +1,6 @@
 {
   "name": "@specfence/core",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "Manifest schema, glob-diff engine, and shared types for SpecFence. Internal shared package - not published standalone.",
   "license": "MIT",
   "private": true,

@@ -1,6 +1,6 @@
 {
   "name": "specfence",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "Zero-infra scope guard for AI-agent (and human) pull requests - deterministic CI gate + CLI.",
   "keywords": ["ci", "github-actions", "ai-agents", "code-review", "monorepo", "spec-driven-development"],
   "license": "MIT",

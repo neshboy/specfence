@@ -1,6 +1,6 @@
 {
   "name": "@specfence/action",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "SpecFence GitHub Action - not published to npm; distributed via git tag + GitHub Marketplace. dist/index.js is committed.",
   "license": "MIT",
   "private": true,

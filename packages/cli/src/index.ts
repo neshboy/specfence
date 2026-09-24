@@ -15,7 +15,7 @@ const program = new Command();
 program
   .name("specfence")
   .description("Zero-infra scope guard for AI-agent (and human) pull requests.")
-  .version("0.1.0");
+  .version("1.0.0");
 
 /** Carries the real, specific reason base-ref resolution failed - see resolveBase(). */
 class BaseResolutionError extends Error {}
