@@ -58,3 +58,5 @@ Bugs: [open an issue](https://github.com/neshboy/specfence/issues) (see
 [docs/troubleshooting.md](troubleshooting.md) first). Security
 vulnerabilities: see [SECURITY.md](../SECURITY.md) - please don't file those
 as public issues.
+
+<!-- self-check workflow trigger -->
