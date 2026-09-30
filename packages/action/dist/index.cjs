@@ -33562,6 +33562,19 @@ minimatch.escape = escape;
 minimatch.unescape = unescape;
 
 // ../core/dist/index.js
+function reasonLabel(reason) {
+  switch (reason) {
+    case "denied":
+      return "matches a top-level deny pattern";
+    case "symlink":
+      return "symlinks are always flagged, regardless of scope";
+    case "submodule":
+      return "submodule pointer changes are always flagged, regardless of scope";
+    case "not-in-scope":
+    default:
+      return "not covered by any declared scope";
+  }
+}
 var ManifestError = class extends Error {
   constructor(message, code) {
     super(message);
@@ -33699,12 +33712,22 @@ function validateGlob(glob, field, label) {
     }
   }
 }
-var MATCH_OPTIONS = { dot: true, nocase: false, nonegate: true };
+var MATCH_OPTIONS = { dot: true, nocase: false, nonegate: true, noext: true };
 function normalizeGlob(glob) {
   return glob.endsWith("/") ? `${glob}**` : glob;
 }
+var compiledGlobCache = /* @__PURE__ */ new Map();
+function compileGlob(glob) {
+  const normalized = normalizeGlob(glob);
+  let compiled = compiledGlobCache.get(normalized);
+  if (!compiled) {
+    compiled = new Minimatch(normalized, MATCH_OPTIONS);
+    compiledGlobCache.set(normalized, compiled);
+  }
+  return compiled;
+}
 function matchesAny(path2, globs) {
-  return globs.some((glob) => minimatch(path2, normalizeGlob(glob), MATCH_OPTIONS));
+  return globs.some((glob) => compileGlob(glob).match(path2));
 }
 function evaluatePath(path2, manifest) {
   if (matchesAny(path2, manifest.ignore)) return { kind: "ignored" };
@@ -33791,18 +33814,9 @@ function toChangeEntries(files, headTreeMap, baseTreeMap, treesReliable) {
 }
 
 // src/summary.ts
-function reasonLabel(reason) {
-  switch (reason) {
-    case "denied":
-      return "matches a top-level `deny` pattern";
-    case "symlink":
-      return "symlinks are always flagged, regardless of scope";
-    case "submodule":
-      return "submodule pointer changes are always flagged, regardless of scope";
-    case "not-in-scope":
-    default:
-      return "not covered by any declared scope";
-  }
+function reasonLabel2(reason) {
+  const label = reasonLabel(reason);
+  return reason === "denied" ? label.replace("deny", "`deny`") : label;
 }
 function buildSummaryMarkdown(result, meta) {
   const lines = ["## SpecFence"];
@@ -33820,7 +33834,7 @@ function buildSummaryMarkdown(result, meta) {
   if (result.violations.length > 0) {
     lines.push("", "| File | Reason |", "| --- | --- |");
     for (const v of result.violations) {
-      lines.push(`| \`${v.path}\` | ${reasonLabel(v.reason)} |`);
+      lines.push(`| \`${v.path}\` | ${reasonLabel2(v.reason)} |`);
     }
   }
   if (result.covered.length > 0) {
