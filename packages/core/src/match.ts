@@ -1,4 +1,4 @@
-import { minimatch } from "minimatch";
+import { Minimatch } from "minimatch";
 
 /**
  * minimatch options pinned deliberately (see docs/security.md): dot:true so
@@ -18,7 +18,15 @@ import { minimatch } from "minimatch";
  * which also rejects a leading "!" outright at parse time as a second,
  * belt-and-suspenders guard).
  */
-const MATCH_OPTIONS = { dot: true, nocase: false, nonegate: true } as const;
+// noext:true disables extglob syntax (+(...), *(...), ?(...), @(...),
+// !(...)) entirely. This schema/docs never document extglob as supported,
+// and manifest.ts's validateGlob() ReDoS guard only counts plain */**
+// runs per path segment - an extglob quantifier group like "+(a|aa)"
+// repeated compiles to an exponential-time regex that sails through that
+// guard unbounded (reported wildcardRuns of 0) while still taking minutes
+// against an adversarial path. Disabling extglob outright closes this
+// rather than trying to bound an ever-growing set of quantifier shapes.
+const MATCH_OPTIONS = { dot: true, nocase: false, nonegate: true, noext: true } as const;
 
 /**
  * A bare trailing-slash pattern like "dist/" does not reliably mean
@@ -29,6 +37,28 @@ function normalizeGlob(glob: string): string {
   return glob.endsWith("/") ? `${glob}**` : glob;
 }
 
+// checkScope() (gate.ts) re-runs the same fixed set of manifest globs
+// (ignore, deny, and every scope's globs + exclude) against every changed
+// path - and again for oldPath on renames - so calling the free-function
+// `minimatch(path, glob, options)` per (path, glob) pair recompiles the
+// same glob into a brand-new regex on every single call. Cache compiled
+// Minimatch instances by their normalized glob string instead, so each
+// distinct glob in a manifest is compiled once and reused across every
+// path in the run: O(changedFiles x totalGlobs) compilations collapses to
+// O(totalGlobs). MATCH_OPTIONS is a fixed module-level constant, so the
+// normalized glob string alone is a safe, unambiguous cache key.
+const compiledGlobCache = new Map<string, Minimatch>();
+
+function compileGlob(glob: string): Minimatch {
+  const normalized = normalizeGlob(glob);
+  let compiled = compiledGlobCache.get(normalized);
+  if (!compiled) {
+    compiled = new Minimatch(normalized, MATCH_OPTIONS);
+    compiledGlobCache.set(normalized, compiled);
+  }
+  return compiled;
+}
+
 export function matchesAny(path: string, globs: readonly string[]): boolean {
-  return globs.some((glob) => minimatch(path, normalizeGlob(glob), MATCH_OPTIONS));
+  return globs.some((glob) => compileGlob(glob).match(path));
 }

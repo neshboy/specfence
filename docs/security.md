@@ -174,9 +174,17 @@ than 4 wildcard groups (`*` or `**`, counted as one run each) in a single
 path segment, closing the demonstrated shape while still allowing normal
 patterns like `*_*_*_*.log`. This is a targeted mitigation for the
 specific, measured attack shape, not an exhaustive audit of every
-minimatch feature combination (extglob/brace-expansion interactions
-weren't specifically re-tested) - treat it as a tracked, documented
-limitation rather than a blanket guarantee.
+minimatch feature combination.
+
+Extglob syntax (`+(...)`, `*(...)`, `?(...)`, `@(...)`, `!(...)`) was one
+such gap: it isn't counted by `validateGlob()`'s wildcard-run check at all
+(a repeated quantifier group reports `wildcardRuns: 0`) but still compiles
+to an exponential-time regex - measured at 2+ minutes against a single
+~100-character attacker-chosen path. Since extglob was never documented as
+supported by this schema, it's now disabled outright via `noext: true` in
+`MATCH_OPTIONS` (`packages/core/src/match.ts`) rather than patched into the
+wildcard-run heuristic, closing the whole feature as an attack surface
+instead of chasing individual quantifier shapes.
 
 ## Log / workflow-command injection
 

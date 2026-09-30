@@ -28,8 +28,14 @@ function git(cwd: string, args: string[]): string {
     if (e.code === "ENOENT") {
       throw new GitError("git was not found on PATH - the specfence CLI shells out to your local git installation.");
     }
-    const stderr = e.stderr ? Buffer.from(e.stderr).toString("utf8").trim() : e.message;
-    throw new GitError(stderr);
+    const stderrText = e.stderr ? Buffer.from(e.stderr).toString("utf8").trim() : "";
+    // A present-but-zero-length stderr Buffer is truthy, so we can't just
+    // check `e.stderr` - git commands run with `--quiet` (e.g.
+    // `rev-parse --verify --quiet`) deliberately produce empty stderr on
+    // failure, which would otherwise surface as a blank "error: " with no
+    // diagnostic at all. Fall back to execFileSync's own message whenever
+    // the decoded stderr text is actually empty.
+    throw new GitError(stderrText || e.message);
   }
   try {
     return safeDecodeUtf8(buffer, "git output");
@@ -57,17 +63,34 @@ export function assertRefExists(cwd: string, ref: string): void {
   git(cwd, ["rev-parse", "--verify", "--quiet", `${ref}^{commit}`]);
 }
 
+/**
+ * True if `path` exists in the tree at `ref`. Existence is signalled purely
+ * by `git cat-file -e`'s exit code, never by pattern-matching git's stderr
+ * text - the latter is only ever printed in whatever language the local
+ * git installation's LANG/LC_ALL is set to, so matching literal English
+ * substrings (as a previous version of this check did) silently breaks on
+ * a localized git.
+ */
+function existsAtRef(cwd: string, ref: string, path: string): boolean {
+  try {
+    execFileSync("git", ["cat-file", "-e", `${ref}:${path}`], {
+      cwd,
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+    return true;
+  } catch (err) {
+    const e = err as NodeJS.ErrnoException;
+    if (e.code === "ENOENT") {
+      throw new GitError("git was not found on PATH - the specfence CLI shells out to your local git installation.");
+    }
+    return false;
+  }
+}
+
 /** Reads a file's content at a specific ref. Returns undefined if the path doesn't exist there (not an error). */
 export function readFileAtRef(cwd: string, ref: string, path: string): string | undefined {
-  try {
-    return git(cwd, ["show", `${ref}:${path}`]);
-  } catch (err) {
-    const message = (err as Error).message;
-    if (/does not exist in|exists on disk, but not in|fatal: path .* does not exist/.test(message)) {
-      return undefined;
-    }
-    throw err;
-  }
+  if (!existsAtRef(cwd, ref, path)) return undefined;
+  return git(cwd, ["show", `${ref}:${path}`]);
 }
 
 interface RawDiffRecord {

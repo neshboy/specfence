@@ -1,17 +1,14 @@
 import type { GateResult, ViolationReason } from "@specfence/core";
+import { reasonLabel as coreReasonLabel } from "@specfence/core";
 
+/**
+ * Markdown-flavored wrapper around the shared core label: the only
+ * difference from the CLI's plain-text rendering is that the Action's
+ * markdown summary wraps `deny` in backticks.
+ */
 function reasonLabel(reason: ViolationReason): string {
-  switch (reason) {
-    case "denied":
-      return "matches a top-level `deny` pattern";
-    case "symlink":
-      return "symlinks are always flagged, regardless of scope";
-    case "submodule":
-      return "submodule pointer changes are always flagged, regardless of scope";
-    case "not-in-scope":
-    default:
-      return "not covered by any declared scope";
-  }
+  const label = coreReasonLabel(reason);
+  return reason === "denied" ? label.replace("deny", "`deny`") : label;
 }
 
 export interface SummaryMeta {

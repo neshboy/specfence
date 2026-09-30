@@ -40,6 +40,28 @@ export interface Violation {
   reason: ViolationReason;
 }
 
+/**
+ * Human-readable label for a ViolationReason. Shared here so the CLI
+ * (packages/cli/src/output.ts) and the Action (packages/action/src/summary.ts)
+ * don't each maintain their own copy of this switch - previously every new
+ * ViolationReason needed the same edit made twice in two separate packages.
+ * The one cosmetic difference between the two call sites (the Action's
+ * markdown wraps `deny` in backticks) is handled at the call site, not here.
+ */
+export function reasonLabel(reason: ViolationReason): string {
+  switch (reason) {
+    case "denied":
+      return "matches a top-level deny pattern";
+    case "symlink":
+      return "symlinks are always flagged, regardless of scope";
+    case "submodule":
+      return "submodule pointer changes are always flagged, regardless of scope";
+    case "not-in-scope":
+    default:
+      return "not covered by any declared scope";
+  }
+}
+
 export interface CoveredPath {
   path: string;
   scopeId: string;

@@ -1,23 +1,10 @@
 import pc from "picocolors";
-import type { GateResult, ViolationReason } from "@specfence/core";
+import type { GateResult } from "@specfence/core";
+import { reasonLabel } from "@specfence/core";
 
 interface Meta {
   base: string;
   manifestPath: string;
-}
-
-function reasonLabel(reason: ViolationReason): string {
-  switch (reason) {
-    case "denied":
-      return "matches a top-level deny pattern";
-    case "symlink":
-      return "symlinks are always flagged, regardless of scope";
-    case "submodule":
-      return "submodule pointer changes are always flagged, regardless of scope";
-    case "not-in-scope":
-    default:
-      return "not covered by any declared scope";
-  }
 }
 
 export function formatHuman(result: GateResult, meta: Meta): string {
